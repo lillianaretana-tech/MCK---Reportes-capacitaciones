@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Capacitación - Supabase</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+</head>
+<body class="bg-gray-50">
+    <div id="app"></div>
+
+<script>
+const SUPABASE_URL = 'https://buevojticjmynimnfdiu.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ1ZXZvanRpY2pteW5pbW5mZGl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE3MDU3NzgsImV4cCI6MjA3NzI4MTc3OH0.ofNUsQ0ZZT-AQ-we65m5qPLHtC0gG2QIQm2XyJ1Haec';
+const supabaseClient = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_KEY
+);
+
+const estado = {
+    empleados: [],
+    previewDatos: [],
+    datosConsolidados: [],
+    datosHistorial: [],
+    filtros: {
+        proyecto: '',
+        empleado: '',
+        fecha: ''
+    }
+};
+
+let MODO = new URLSearchParams(window.location.search).get('modo') || 'selector';
+
+function normalizarDatos(datos) {
+    return datos.map(row => ({
+        id: row.id || row.ID || '',
+        nombre: row.nombre || row.Nombre || '',
+        departamento: row.departamento || row.Departamento || row.proyecto || row.Proyecto || ''
+    }));
+}
+
+function generarHTMLFuncionario(empleados, fecha) {
+    const empsJSON = JSON.stringify(empleados);
+    
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Capacitación</title>
+    <script src="https://cdn.tailwindcss.com"><\/script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"><\/script>
+</head>
+<body class="bg-gray-50">
+    <div id="app"></div>
+
+    <script>
+        const sb = window.supabase.createClient(
+            'https://buevojticjmynimnfdiu.supabase.co',
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ1ZXZvanRpY2pteW5pbW5mZGl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE3MDU3NzgsImV4cCI6MjA3NzI4MTc3OH0.ofNUsQ0ZZT-AQ-we65m5qPLHtC0gG2QIQm2XyJ1Haec'
+        );
+
+        const emps = ${empsJSON};
+        let empleadoSeleccionado = null;
+
+        function obtenerProyectos() {
+            return [...new Set(emps.map(e => e.departamento))];
+        }
+
+        function al_cambiar_proyecto() {
+            const proySelect = document.getElementById('proyecto-select');
+            const empSelect = document.getElementById('empleado-select');
+            const empeDiv = document.getElementById('empleado-div');
+            
+            const proySeleccionado = proySelect.value;
+            empSelect.innerHTML = '<option value="">--Seleccionar empleado--<\/option>';
+            
+            if (proySeleccionado) {
+                const empleadosFiltr = emps.filter(e => e.departamento === proySeleccionado);
+                empleadosFiltr.forEach(emp => {
+                    const opt = document.createElement('option');
+                    opt.value = emp.id;
+                    opt.textContent = emp.nombre;
+                    empSelect.appendChild(opt);
+                });
+                empeDiv.style.display = 'block';
+            } else {
+                empeDiv.style.display = 'none';
+            }
+        }
+
+        function al_cambiar_empleado() {
+            const empSelect = document.getElementById('empleado-select');
+            const empId = empSelect.value;
+            
+            if (empId) {
+                empleadoSeleccionado = emps.find(e => e.id === empId);
+            } else {
+                empleadoSeleccionado = null;
+            }
+        }
+
+        async function guardar() {
+            if (!empleadoSeleccionado) {
+                alert('⚠️ Por favor selecciona un empleado');
+                return;
+            }
+
+            const nombreCapacitacion = document.getElementById('nombreCapacitacion').value.trim();
+            const fecha = document.getElementById('fecha').value;
+            const duracion = document.getElementById('duracion').value;
+            const descripcionAcademico = document.querySelector('input[name="descripcionAcademico"]:checked')?.value || '';
+            const tipoCapacitacion = document.querySelector('input[name="tipoCapacitacion"]:checked')?.value || '';
+            const profesor = document.getElementById('profesor').value.trim();
+            const concluido = document.getElementById('concluido').checked;
+
+            if (!nombreCapacitacion) { alert('⚠️ Capacitación requerida'); return; }
+            if (!fecha) { alert('⚠️ Fecha requerida'); return; }
+            if (!duracion) { alert('⚠️ Duración requerida'); return; }
+            if (!descripcionAcademico) { alert('⚠️ Descripción requerida'); return; }
+            if (!tipoCapacitacion) { alert('⚠️ Tipo capacitación requerido'); return; }
+            if (!profesor) { alert('⚠️ Profesor requerido'); return; }
+
+            const datos = {
+                nombre_funcionario: empleadoSeleccionado.nombre,
+                id_empleado: empleadoSeleccionado.id,
+                proyecto: empleadoSeleccionado.departamento,
+                capacitacion: nombreCapacitacion,
+                fecha: fecha,
+                duracion: duracion,
+                descripcion_tipo_academico: descripcionAcademico,
+                tipo_capacitacion: tipoCapacitacion,
+                profesor: profesor,
+                concluido: concluido
+            };
+
+            try {
+                const { error } = await sb.from('capacitaciones').insert([datos]);
+                if (error) throw error;
+                
+                alert('✅ Registro guardado exitosamente');
+                limpiarFormulario();
+            } catch (e) {
+                console.error('Error:', e);
+                alert('❌ Error al guardar: ' + e.message);
+            }
+        }
+
+        function limpiarFormulario() {
+            document.getElementById('nombreCapacitacion').value = '';
+            document.getElementById('fecha').value = '';
+            document.getElementById('fechaVisual').textContent = '';
+            document.getElementById('duracion').value = '';
+            document.getElementById('profesor').value = '';
+            document.getElementById('concluido').checked = false;
+            document.querySelectorAll('input[type="radio"]').forEach(r => r.checked = false);
+        }
+
+        function formatearFecha(fechaISO) {
+            if (!fechaISO) return '';
+            const [año, mes, día] = fechaISO.split('-');
+            return '📅 ' + día + '/' + mes + '/' + año;
+        }
+
+        function renderizar() {
+            const proyectos = obtenerProyectos();
+            const html = \`
+                <div class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
+                    <div class="max-w-2xl mx-auto">
+                        <div class="bg-white rounded-xl shadow-2xl p-8">
+                            <div class="text-center mb-8">
+                                <h1 class="text-4xl font-bold text-gray-800 mb-2">📋 Formulario de Capacitación</h1>
+                                <p class="text-gray-600">Completa todos los campos obligatorios</p>
+                            </div>
+
+                            <div class="mb-6">
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Proyecto *</label>
+                                <select id="proyecto-select" onchange="al_cambiar_proyecto()" class="w-full border-2 border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500">
+                                    <option value="">--Seleccionar proyecto--</option>
+                                    \${proyectos.map(p => '<option value="' + p + '">' + p + '</option>').join('')}
+                                </select>
+                            </div>
+
+                            <div id="empleado-div" class="mb-6" style="display:none;">
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Empleado *</label>
+                                <select id="empleado-select" onchange="al_cambiar_empleado()" class="w-full border-2 border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500">
+                                    <option value="">--Seleccionar empleado--</option>
+                                </select>
+                            </div>
+
+                            <div class="mb-6">
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Capacitación *</label>
+                                <input type="text" id="nombreCapacitacion" placeholder="Ej: Excel Avanzado" class="w-full border-2 border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500">
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4 mb-6">
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">Fecha * <span class="text-xs text-gray-500">(DD/MM/YYYY)</span></label>
+                                    <div class="relative">
+                                        <input type="date" id="fecha" class="w-full border-2 border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500" onchange="document.getElementById('fechaVisual').textContent = formatearFecha(this.value)">
+                                        <div id="fechaVisual" class="mt-2 text-lg font-bold text-blue-600"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">Duración (min) *</label>
+                                    <input type="number" id="duracion" placeholder="60" class="w-full border-2 border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500" min="1">
+                                </div>
+                            </div>
+
+                            <div class="mb-6">
+                                <label class="block text-sm font-semibold text-gray-700 mb-3">Descripción *</label>
+                                <div class="space-y-2">
+                                    <label class="flex items-center"><input type="radio" name="descripcionAcademico" value="Charla" class="mr-3"> <span>Charla (013)</span></label>
+                                    <label class="flex items-center"><input type="radio" name="descripcionAcademico" value="Refrescamiento" class="mr-3"> <span>Refrescamiento (015)</span></label>
+                                    <label class="flex items-center"><input type="radio" name="descripcionAcademico" value="Curso" class="mr-3"> <span>Curso (014)</span></label>
+                                </div>
+                            </div>
+
+                            <div class="mb-6">
+                                <label class="block text-sm font-semibold text-gray-700 mb-3">Tipo Capacitación *</label>
+                                <div class="space-y-2">
+                                    <label class="flex items-center"><input type="radio" name="tipoCapacitacion" value="Interna" class="mr-3"> <span>Interna</span></label>
+                                    <label class="flex items-center"><input type="radio" name="tipoCapacitacion" value="Externa" class="mr-3"> <span>Externa</span></label>
+                                </div>
+                            </div>
+
+                            <div class="mb-6">
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Profesor *</label>
+                                <input type="text" id="profesor" placeholder="Nombre del profesor" class="w-full border-2 border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500">
+                            </div>
+
+                            <div class="mb-8">
+                                <label class="flex items-center text-gray-700 font-semibold">
+                                    <input type="checkbox" id="concluido" class="mr-3 w-4 h-4">
+                                    <span>Capacitación Concluida</span>
+                                </label>
+                            </div>
+
+                            <button onclick="guardar()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition">
+                                💾 Guardar Registro
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            \`;
+            document.getElementById('app').innerHTML = html;
+        }
+
+        renderizar();
+    <\/script>
+</body>
+</html>`;
+}
+
+async function cambiarModo(m) {
+    MODO = m;
+    window.history.replaceState({}, '', '?modo=' + m);
+    renderUI();
+}
+
+async function cargarDatos() {
+    const {data} = await supabaseClient.from('capacitaciones').select('*').order('created_at', {ascending: false});
+    estado.datosConsolidados = data || [];
+    cargarHistorial();
+    renderUI();
+}
+
+async function cargarHistorial() {
+    const {data} = await supabaseClient.from('historial_cambios').select('*').order('created_at', {ascending: false});
+    estado.datosHistorial = data || [];
+}
+
+async function marcarEnviadoARH(id) {
+    try {
+        const registroActual = estado.datosConsolidados.find(r => r.id === id);
+        const nuevoEstado = !registroActual.enviado_a_rh;
+        
+        const { error } = await supabase
+            .from('capacitaciones')
+            .update({ enviado_a_rh: nuevoEstado })
+            .eq('id', id);
+        
+        if (error) throw error;
+        cargarDatos();
+    } catch (e) {
+        alert('❌ Error: ' + e.message);
+    }
+}
+
+async function eliminarEnviadosARH() {
+    const enviados = estado.datosConsolidados.filter(d => d.enviado_a_rh).length;
+    
+    if (enviados === 0) {
+        alert('⚠️ No hay registros marcados como enviados a RH');
+        return;
+    }
+
+    const confirmacion = confirm(`⚠️ ¿Eliminar ${enviados} registro(s) marcados como enviados a RH?\n\nEsta acción NO se puede deshacer.`);
+    
+    if (!confirmacion) return;
+
+    try {
+        const { error } = await supabase
+            .from('capacitaciones')
+            .delete()
+            .eq('enviado_a_rh', true);
+        
+        if (error) throw error;
+
+        // Registrar en historial
+        await supabaseClient.from('historial_cambios').insert([{
+            accion: 'ELIMINADO EN LOTE',
+            detalles: `${enviados} registros enviados a RH eliminados`,
+            usuario: 'SUPERVISOR'
+        }]);
+
+        alert(`✅ ${enviados} registro(s) eliminado(s) correctamente`);
+        cargarDatos();
+    } catch (e) {
+        alert('❌ Error al eliminar: ' + e.message);
+    }
+}
+
+function obtenerProyectosUnicos() {
+    return [...new Set(estado.datosConsolidados.map(d => d.proyecto))].sort();
+}
+
+function obtenerEmpleadosUnicos() {
+    return [...new Set(estado.datosConsolidados.map(d => d.nombre_funcionario))].sort();
+}
+
+function aplicarFiltros() {
+    let datos = [...estado.datosConsolidados];
+
+    if (estado.filtros.proyecto) {
+        datos = datos.filter(d => d.proyecto === estado.filtros.proyecto);
+    }
+    if (estado.filtros.empleado) {
+        datos = datos.filter(d => d.nombre_funcionario === estado.filtros.empleado);
+    }
+    if (estado.filtros.fecha) {
+        datos = datos.filter(d => d.fecha === estado.filtros.fecha);
+    }
+
+    return datos;
+}
+
+async function manejarCarga(e) {
+    const f = e.target.files[0];
+    let datos;
+    
+    if (f.name.endsWith('.csv')) {
+        datos = await new Promise((r, j) => 
+            Papa.parse(f, {
+                header: true, 
+                skipEmptyLines: true, 
+                complete: (res) => r(res.data), 
+                error: j
+            })
+        );
+    } else {
+        const ab = await f.arrayBuffer();
+        const wb = XLSX.read(ab);
+        datos = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+    }
+    
+    estado.previewDatos = normalizarDatos(datos);
+    estado.empleados = estado.previewDatos;
+    renderUI();
+}
+
+function generarHTML() {
+    const hoy = new Date().toISOString().split('T')[0];
+    const html = generarHTMLFuncionario(estado.empleados, hoy);
+    const blob = new Blob([html], {type: 'text/html'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'capacitacion_' + hoy + '.html';
+    a.click();
+    alert('✅ HTML generado correctamente');
+}
+
+function descargarExcel() {
+    if (!estado.datosConsolidados.length) {
+        alert('Sin datos para descargar');
+        return;
+    }
+    
+    const datosFiltr = aplicarFiltros();
+    
+    const datos = datosFiltr.map(d => ({
+        'Nombre del Funcionario': d.nombre_funcionario,
+        'Capacitación': d.capacitacion,
+        'Fecha': d.fecha,
+        'Duración': d.duracion,
+        'Descripción Tipo Académico': d.descripcion_tipo_academico,
+        'Tipo Capacitación': d.tipo_capacitacion,
+        'Profesor': d.profesor,
+        'Concluido': d.concluido ? 'Sí' : 'No'
+    }));
+    
+    const ws = XLSX.utils.json_to_sheet(datos);
+    ws['!cols'] = [
+        { wch: 25 }, { wch: 25 }, { wch: 12 }, { wch: 10 }, 
+        { wch: 20 }, { wch: 18 }, { wch: 20 }, { wch: 12 }
+    ];
+    
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Capacitaciones");
+    XLSX.writeFile(wb, 'capacitacion_consolidado.xlsx');
+}
+
+function renderUI() {
+    const app = document.getElementById('app');
+    
+    if (MODO === 'selector') {
+        app.innerHTML = `
+            <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 to-purple-600">
+                <div class="bg-white rounded-xl shadow-2xl p-8 max-w-md text-center">
+                    <h1 class="text-4xl font-bold mb-2">🎓</h1>
+                    <h2 class="text-3xl font-bold text-gray-800 mb-8">Sistema de Capacitación</h2>
+                    <button onclick="cambiarModo('supervisor')" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg mb-4 text-lg">
+                        👨‍💼 SUPERVISOR
+                    </button>
+                </div>
+            </div>
+        `;
+    } else {
+        const datosFiltr = aplicarFiltros();
+        const total = estado.datosConsolidados.length;
+        const completadas = estado.datosConsolidados.filter(d => d.concluido).length;
+        const pendientes = total - completadas;
+        const mostrados = datosFiltr.length;
+        
+        const proyectos = obtenerProyectosUnicos();
+        const empleados = obtenerEmpleadosUnicos();
+        
+        let html = `
+            <div class="min-h-screen bg-gray-50 p-6">
+                <div class="max-w-7xl mx-auto">
+                    <div class="mb-8">
+                        <h1 class="text-4xl font-bold text-gray-800">📊 Panel de Supervisor</h1>
+                        <p class="text-gray-600 mt-2">Gestión centralizada de capacitaciones</p>
+                    </div>
+
+                    <div class="grid grid-cols-4 gap-4 mb-8">
+                        <div class="bg-blue-50 border-l-4 border-blue-600 p-4 rounded shadow">
+                            <p class="text-sm text-gray-600 font-semibold">TOTAL</p>
+                            <p class="text-3xl font-bold text-blue-600 mt-1">${total}</p>
+                        </div>
+                        <div class="bg-green-50 border-l-4 border-green-600 p-4 rounded shadow">
+                            <p class="text-sm text-gray-600 font-semibold">COMPLETADAS ✓</p>
+                            <p class="text-3xl font-bold text-green-600 mt-1">${completadas}</p>
+                        </div>
+                        <div class="bg-orange-50 border-l-4 border-orange-600 p-4 rounded shadow">
+                            <p class="text-sm text-gray-600 font-semibold">PENDIENTES</p>
+                            <p class="text-3xl font-bold text-orange-600 mt-1">${pendientes}</p>
+                        </div>
+                        <div class="bg-purple-50 border-l-4 border-purple-600 p-4 rounded shadow">
+                            <p class="text-sm text-gray-600 font-semibold">MOSTRADOS (FILTRO)</p>
+                            <p class="text-3xl font-bold text-purple-600 mt-1">${mostrados}</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                        <h2 class="text-2xl font-bold mb-4">🔧 Acciones</h2>
+                        <div class="flex gap-3 flex-wrap mb-4">
+                            <button onclick="cargarDatos()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">🔄 Actualizar</button>
+                            <button onclick="descargarExcel()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">📥 Descargar Excel</button>
+                            <button onclick="eliminarEnviadosARH()" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">🗑️ Eliminar Enviados a RH (${estado.datosConsolidados.filter(d => d.enviado_a_rh).length})</button>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                        <h2 class="text-2xl font-bold mb-4">📄 Generar HTML</h2>
+                        <p class="text-gray-600 mb-3">Sube CSV o Excel con: id, nombre, departamento</p>
+                        <input type="file" id="fileInput" accept=".csv,.xlsx" onchange="manejarCarga(event)" class="mb-3 p-2 border border-gray-300 rounded w-full">
+                        ${estado.previewDatos.length > 0 ? `
+                            <div class="bg-blue-50 p-3 rounded mb-3">
+                                <p class="text-blue-900 font-semibold">✓ ${estado.previewDatos.length} empleados cargados</p>
+                            </div>
+                            <button onclick="generarHTML()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">✅ Generar HTML</button>
+                        ` : ''}
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                        <h2 class="text-2xl font-bold mb-4">🔍 Filtros</h2>
+                        <div class="grid grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Proyecto</label>
+                                <select id="filtro-proyecto" onchange="estado.filtros.proyecto = this.value; renderUI()" class="w-full border border-gray-300 rounded px-3 py-2">
+                                    <option value="">--Todos--</option>
+                                    ${proyectos.map(p => '<option value="' + p + '">' + p + '</option>').join('')}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Empleado</label>
+                                <select id="filtro-empleado" onchange="estado.filtros.empleado = this.value; renderUI()" class="w-full border border-gray-300 rounded px-3 py-2">
+                                    <option value="">--Todos--</option>
+                                    ${empleados.map(e => '<option value="' + e + '">' + e + '</option>').join('')}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Fecha</label>
+                                <input type="date" id="filtro-fecha" onchange="estado.filtros.fecha = this.value; renderUI()" class="w-full border border-gray-300 rounded px-3 py-2">
+                            </div>
+                        </div>
+                        <button onclick="estado.filtros = {proyecto: '', empleado: '', fecha: ''}; document.getElementById('filtro-proyecto').value = ''; document.getElementById('filtro-empleado').value = ''; document.getElementById('filtro-fecha').value = ''; renderUI()" class="mt-4 bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded">🔄 Limpiar Filtros</button>
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                        <h2 class="text-2xl font-bold mb-4">📋 Registros</h2>
+                        ${datosFiltr.length === 0 ? 
+                            '<p class="text-gray-500">Sin registros</p>' : 
+                            `
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm">
+                                    <thead>
+                                        <tr class="bg-gray-100 border-b-2 border-gray-300">
+                                            <th class="px-3 py-2 text-left">Funcionario</th>
+                                            <th class="px-3 py-2 text-left">Capacitación</th>
+                                            <th class="px-3 py-2 text-left">Fecha</th>
+                                            <th class="px-3 py-2 text-center">Concluido</th>
+                                            <th class="px-3 py-2 text-center">Enviado a RH</th>
+                                            <th class="px-3 py-2 text-center">Acción</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${datosFiltr.slice(0, 50).map((r, i) => 
+                                            '<tr class="' + (i % 2 ? 'bg-white' : 'bg-gray-50') + ' border-b border-gray-200">' +
+                                            '<td class="px-3 py-2">' + r.nombre_funcionario + '</td>' +
+                                            '<td class="px-3 py-2">' + r.capacitacion + '</td>' +
+                                            '<td class="px-3 py-2">' + r.fecha + '</td>' +
+                                            '<td class="px-3 py-2 text-center">' + (r.concluido ? '✅' : '❌') + '</td>' +
+                                            '<td class="px-3 py-2 text-center"><input type="checkbox" ' + (r.enviado_a_rh ? 'checked' : '') + ' onchange="marcarEnviadoARH(' + r.id + ')" class="w-4 h-4 cursor-pointer"></td>' +
+                                            '<td class="px-3 py-2 text-center"><button onclick="eliminarRegistro(' + r.id + ')" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-xs">🗑️ Eliminar</button></td>' +
+                                            '</tr>'
+                                        ).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                            `
+                        }
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow-lg p-6">
+                        <h2 class="text-2xl font-bold mb-4">📜 Historial de Cambios</h2>
+                        ${estado.datosHistorial.length === 0 ? 
+                            '<p class="text-gray-500">Sin cambios registrados</p>' : 
+                            `
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm">
+                                    <thead>
+                                        <tr class="bg-gray-100 border-b-2 border-gray-300">
+                                            <th class="px-3 py-2 text-left">Acción</th>
+                                            <th class="px-3 py-2 text-left">Detalles</th>
+                                            <th class="px-3 py-2 text-left">Usuario</th>
+                                            <th class="px-3 py-2 text-left">Fecha/Hora</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${estado.datosHistorial.slice(0, 20).map((h, i) => 
+                                            '<tr class="' + (i % 2 ? 'bg-white' : 'bg-gray-50') + ' border-b border-gray-200">' +
+                                            '<td class="px-3 py-2"><span class="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-bold">' + h.accion + '</span></td>' +
+                                            '<td class="px-3 py-2 text-xs">' + (h.detalles || '-') + '</td>' +
+                                            '<td class="px-3 py-2">' + h.usuario + '</td>' +
+                                            '<td class="px-3 py-2 text-xs">' + new Date(h.created_at).toLocaleString() + '</td>' +
+                                            '</tr>'
+                                        ).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                            `
+                        }
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        app.innerHTML = html;
+    }
+}
+
+renderUI();
+
+if (MODO === 'supervisor') {
+    cargarDatos();
+    setInterval(cargarDatos, 5000);
+}
+</script>
+
+</body>
+</html>
